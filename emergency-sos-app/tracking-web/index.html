@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emergency SOS - Live Tracking</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .status-triggered { background: #fef3c7; color: #92400e; }
+        .status-hospital_selected { background: #dbeafe; color: #1e40af; }
+        .status-ambulance_dispatched { background: #dcfce7; color: #166534; }
+        .status-en_route_to_patient { background: #dcfce7; color: #166534; }
+        .status-patient_picked { background: #dcfce7; color: #166534; }
+        .status-en_route_to_hospital { background: #dcfce7; color: #166534; }
+        .status-arrived_at_hospital { background: #f3e8ff; color: #6b21a8; }
+        .status-completed { background: #d1fae5; color: #065f46; }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .map-container {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        #map {
+            width: 100%;
+            height: 500px;
+        }
+        
+        .info-panel {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .info-section {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .info-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        
+        .info-section h3 {
+            color: #374151;
+            font-size: 16px;
+            margin-bottom: 12px;
+        }
+        
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+        }
+        
+        .info-label {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        
+        .info-value {
+            color: #111827;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .eta-display {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .eta-time {
+            font-size: 48px;
+            font-weight: 700;
+        }
+        
+        .eta-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .timeline {
+            position: relative;
+            padding-left: 30px;
+        }
+        
+        .timeline-item {
+            position: relative;
+            padding-bottom: 20px;
+        }
+        
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -24px;
+            top: 0;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #667eea;
+        }
+        
+        .timeline-item::after {
+            content: '';
+            position: absolute;
+            left: -18px;
+            top: 12px;
+            bottom: 0;
+            width: 2px;
+            background: #e5e7eb;
+        }
+        
+        .timeline-item:last-child::after {
+            display: none;
+        }
+        
+        .timeline-time {
+            font-size: 12px;
+            color: #9ca3af;
+        }
+        
+        .timeline-message {
+            font-size: 14px;
+            color: #374151;
+            margin-top: 4px;
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 400px;
+            color: #6b7280;
+        }
+        
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚨 Emergency SOS - Live Tracking</h1>
+            <p style="color: #6b7280; font-size: 14px;">Track ambulance location and status in real-time</p>
+        </div>
+        
+        <div id="content">
+            <div class="loading">Loading tracking information...</div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = window.location.hostname === 'localhost' 
+            ? 'http://localhost:8000/api/v1' 
+            : '/api/v1';
+        
+        // Extract token from URL
+        const pathParts = window.location.pathname.split('/');
+        const token = pathParts[pathParts.indexOf('tracking') + 1];
+        
+        async function loadTrackingData() {
+            try {
+                const response = await fetch(`${API_BASE}/emergency/token/${token}/track`);
+                
+                if (!response.ok) {
+                    throw new Error('Tracking information not found');
+                }
+                
+                const data = await response.json();
+                renderTrackingPage(data);
+                
+                // Poll for updates every 10 seconds
+                setTimeout(loadTrackingData, 10000);
+            } catch (error) {
+                document.getElementById('content').innerHTML = `
+                    <div class="error">
+                        <h2>Unable to load tracking information</h2>
+                        <p>${error.message}</p>
+                        <p style="margin-top: 10px; font-size: 14px;">Please check the tracking link or contact emergency services.</p>
+                    </div>
+                `;
+            }
+        }
+        
+        function renderTrackingPage(data) {
+            const statusLabels = {
+                'triggered': 'Emergency Triggered',
+                'hospital_selected': 'Hospital Selected',
+                'ambulance_dispatched': 'Ambulance Dispatched',
+                'en_route_to_patient': 'En Route to Patient',
+                'patient_picked': 'Patient Picked Up',
+                'en_route_to_hospital': 'En Route to Hospital',
+                'arrived_at_hospital': 'Arrived at Hospital',
+                'completed': 'Completed'
+            };
+            
+            const statusClass = `status-${data.status}`;
+            const statusText = statusLabels[data.status] || data.status;
+            
+            let ambulanceInfo = '';
+            if (data.ambulance) {
+                ambulanceInfo = `
+                    <div class="info-section">
+                        <h3>🚑 Ambulance Location</h3>
+                        <div class="info-item">
+                            <span class="info-label">Latitude</span>
+                            <span class="info-value">${data.ambulance.latitude.toFixed(4)}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Longitude</span>
+                            <span class="info-value">${data.ambulance.longitude.toFixed(4)}</span>
+                        </div>
+                        ${data.ambulance.distance_km ? `
+                        <div class="info-item">
+                            <span class="info-label">Distance</span>
+                            <span class="info-value">${data.ambulance.distance_km} km</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+            
+            let hospitalInfo = '';
+            if (data.hospital) {
+                hospitalInfo = `
+                    <div class="info-section">
+                        <h3>🏥 Destination Hospital</h3>
+                        <div class="info-item">
+                            <span class="info-label">Name</span>
+                            <span class="info-value">${data.hospital.name}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Address</span>
+                            <span class="info-value">${data.hospital.address}</span>
+                        </div>
+                        ${data.hospital.phone ? `
+                        <div class="info-item">
+                            <span class="info-label">Phone</span>
+                            <span class="info-value">${data.hospital.phone}</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+            
+            let timelineHtml = '';
+            if (data.updates && data.updates.length > 0) {
+                timelineHtml = `
+                    <div class="info-section">
+                        <h3>📋 Timeline</h3>
+                        <div class="timeline">
+                            ${data.updates.reverse().map(update => `
+                                <div class="timeline-item">
+                                    <div class="timeline-time">${new Date(update.timestamp).toLocaleString()}</div>
+                                    <div class="timeline-message">${update.message}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            const etaDisplay = data.eta_minutes ? `
+                <div class="eta-display">
+                    <div class="eta-time">${data.eta_minutes}<span style="font-size: 24px;">min</span></div>
+                    <div class="eta-label">Estimated Arrival Time</div>
+                </div>
+            ` : '';
+            
+            document.getElementById('content').innerHTML = `
+                <div class="main-content">
+                    <div class="map-container">
+                        <div id="map"></div>
+                    </div>
+                    <div class="info-panel">
+                        <div style="margin-bottom: 20px;">
+                            <span class="status-badge ${statusClass}">${statusText}</span>
+                        </div>
+                        
+                        ${etaDisplay}
+                        
+                        ${ambulanceInfo}
+                        ${hospitalInfo}
+                        ${timelineHtml}
+                    </div>
+                </div>
+            `;
+            
+            // Initialize map
+            initMap(data);
+        }
+        
+        function initMap(data) {
+            // Default to Delhi if no location data
+            const defaultLocation = { lat: 28.6139, lng: 77.2090 };
+            
+            let centerLocation = defaultLocation;
+            let markers = [];
+            
+            if (data.ambulance) {
+                centerLocation = {
+                    lat: data.ambulance.latitude,
+                    lng: data.ambulance.longitude
+                };
+                markers.push({
+                    position: centerLocation,
+                    title: 'Ambulance',
+                    icon: '🚑'
+                });
+            }
+            
+            if (data.hospital && data.hospital.latitude && data.hospital.longitude) {
+                markers.push({
+                    position: {
+                        lat: data.hospital.latitude,
+                        lng: data.hospital.longitude
+                    },
+                    title: 'Hospital',
+                    icon: '🏥'
+                });
+            }
+            
+            // Create map using Google Maps or fallback to static map
+            if (window.google && window.google.maps) {
+                const map = new google.maps.Map(document.getElementById('map'), {
+                    zoom: 12,
+                    center: centerLocation
+                });
+                
+                markers.forEach(marker => {
+                    new google.maps.Marker({
+                        position: marker.position,
+                        map: map,
+                        title: marker.title
+                    });
+                });
+            } else {
+                // Fallback: Show static map image
+                document.getElementById('map').innerHTML = `
+                    <div style="padding: 40px; text-align: center; color: #6b7280;">
+                        <p>📍 Map visualization requires Google Maps API key</p>
+                        <p style="margin-top: 10px; font-size: 14px;">
+                            ${markers.map(m => `${m.title}: ${m.position.lat.toFixed(4)}, ${m.position.lng.toFixed(4)}`).join('<br>')}
+                        </p>
+                    </div>
+                `;
+            }
+        }
+        
+        // Load data on page load
+        loadTrackingData();
+    </script>
+    
+    <!-- Google Maps - optional, will work without it -->
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=${process.env.GOOGLE_MAPS_API_KEY || ''}"></script>
+</body>
+</html>
